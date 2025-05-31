@@ -18,7 +18,7 @@ def start_pad(n):
 
 
 def ngrams(n, text):
-    text = start_pad(n) + text  # başa ~ ekle
+    text = start_pad(n) + text  
     output = []
     for i in range(n, len(text)):
         context = text[i - n:i]
@@ -117,7 +117,7 @@ class NgramModel(object):
             total += self.prob(context, char)
             if r < total:
                 return char
-        return vocab_sorted[-1]  # fallback
+        return vocab_sorted[-1] 
 
     def random_text(self, length):
         """ Returns text of the specified character length based on the
@@ -131,21 +131,16 @@ class NgramModel(object):
         return result
 
     def perplexity(self, text):
-        """ Returns the perplexity of text based on the n-grams learned by
-            this model """
         n_grams = ngrams(self.n, text)
-        log_prob_sum = 0.0
-        for context, char in n_grams:
-            prob_val = self.prob(context, char)
-            if prob_val > 0:
-                log_prob_sum += math.log(prob_val)
-            else:
-                return float('inf')  # if prob is zero, perplexity is infinite
-        l = len(n_grams)
-        if l == 0:
+        if not n_grams:
             return float('inf')
-        avg_log_prob = log_prob_sum / l
-        return math.exp(-avg_log_prob)
+    
+        log_sum = 0.0
+        for ctx, char in n_grams:
+            p = self.prob(ctx, char)
+            log_sum += math.log(max(p, 1e-10))  # log(0) önlemi
+    
+        return math.exp(-log_sum / len(n_grams))
 
 ################################################################################
 # Part 2: N-Gram Model with Interpolation
@@ -170,17 +165,14 @@ class NgramModelWithInterpolation(NgramModel):
             self.n_grams_all[i].update(text)
 
     def prob(self, context, char):
-        # Lambda değerlerini al (eğer ayarlanmamışsa varsayılan değerler kullanılır)
+    
         lambdas = self.set_lambdas()
         
         total_prob = 0.0
         for i in range(len(lambdas)):
-            # i, kullanılacak n-gram boyutunu temsil eder (0=unigram, 1=bigram, ...)
             if i <= len(context):
                 # Uygun boyutta context al
                 sub_context = context[-i:] if i > 0 else ''
-                
-                # Alt modelin olasılığını hesapla ve lambda ağırlığıyla çarp
                 prob = self.n_grams_all[i].prob(sub_context, char)
                 total_prob += lambdas[i] * prob
         
@@ -188,12 +180,9 @@ class NgramModelWithInterpolation(NgramModel):
 
     def set_lambdas(self, lambdas=None):
         if lambdas is not None:
-            # Verilen lambda değerlerini normalleştir (toplamı 1 yap)
             total = sum(lambdas)
             self.lambdas = [l/total for l in lambdas]
         else:
-            # Varsayılan değerler: daha yüksek n-gram'lara daha fazla ağırlık ver
-            # Örneğin n=3 için: [0.1, 0.2, 0.3, 0.4]
             self.lambdas = [0.1]  # Unigram
             if self.n >= 1:
                 self.lambdas.extend([0.2 * (i+1) for i in range(self.n)])
@@ -202,10 +191,17 @@ class NgramModelWithInterpolation(NgramModel):
         
         return self.lambdas
     
-    def update_lambdas(self, lambdas):
-        """Lambda değerlerini günceller"""
-        total = sum(lambdas)
-        self.lambdas = [l/total for l in lambdas]  # Normalize edilmiş lambda değerleri
+    def update_lambdas(self, lambdas=None):
+        if lambdas is None:
+        # Varsayılan: daha yüksek n-gram'lara daha fazla ağırlık
+            self.lambdas = [0.1 * (i+1) for i in range(self.n+1)]
+            self.lambdas[-1] *= 2  # En yüksek n-gram'a ek ağırlık
+        else:
+            self.lambdas = list(lambdas)
+    
+    # Toplamı 1'e normalize et
+        total = sum(self.lambdas)
+        self.lambdas = [l/total for l in self.lambdas]
 
 ################################################################################
 # Part 3: Your N-Gram Model Experimentation
@@ -225,18 +221,16 @@ class CountriesModel:
                 self.models[code] = (create_ngram_model(NgramModel, "data/train/" + code + ".txt", n=n, k=k))
 
     def predict_country(self, city):
-        max_prob = -float('inf')  # Log olasılık kullanacağımız için -sonsuz başlatıyoruz
+        max_prob = -float('inf')  
         arg_max = ""
         
-        # Şehir ismini işle (başlangıç/bitiş tokenları ekle)
         processed_city = '^' + ''.join(c for c in city.strip().lower() if c.isalpha() or c in " '-") + '$'
         
         for country_code, model in self.models.items():
             try:
-                # Şehrin log olasılığını hesapla
                 log_prob = 0.0
                 contexts = ngrams(model.n, processed_city)
-                if not contexts:  # Boş şehir isimlerini atla
+                if not contexts:  
                     continue
                 for context, char in contexts:
                     p = model.prob(context, char)
@@ -247,7 +241,6 @@ class CountriesModel:
                 
                 normalized_log_prob = log_prob / len(processed_city) if len(processed_city) > 0 else log_prob
 
-                # En yüksek olasılıklı ülkeyi güncelle
                 if normalized_log_prob > max_prob:
                     max_prob = normalized_log_prob
                     arg_max = country_code
@@ -256,7 +249,6 @@ class CountriesModel:
                 print(f"Hata: {country_code} modelinde {city} işlenirken - {str(e)}")
                 continue
         
-        # Eğer hiçbir model uygun sonuç vermediyse rastgele bir ülke seç
         return arg_max if arg_max else random.choice(COUNTRY_CODES)
 
     def fit(self, cities):
@@ -264,7 +256,7 @@ class CountriesModel:
 
     def update_lambdas(self, lambdas):
         for code in self.models:
-            if hasattr(self.models[code], 'update_lambdas'):  # Metodun varlığını kontrol et
+            if hasattr(self.models[code], 'update_lambdas'): 
                 self.models[code].update_lambdas(lambdas)
             else:
                 print(f"Uyarı: {code} modelinde update_lambdas metodu bulunamadı")
@@ -308,36 +300,36 @@ if __name__ == '__main__':
 
     print(f'##########################################################################################################')
 
-    # war_peace_n = 2
+    war_peace_n = 2
 
-    # print(f'Generating {war_peace_n }-gram war peace')
-    # print(f'##########################################################################################################')
-    # m = create_ngram_model(NgramModel, 'warpeace_input.txt', war_peace_n)
-    # print(m.random_text(250))
+    print(f'Generating {war_peace_n }-gram war peace')
+    print(f'##########################################################################################################')
+    m = create_ngram_model(NgramModel, 'data/warpeace_input.txt', war_peace_n)
+    print(m.random_text(250))
 
-    # print(f'##########################################################################################################')
+    print(f'##########################################################################################################')
 
-    # war_peace_n = 3
-    # print(f'Generating {war_peace_n }-gram war peace')
-    # print(f'##########################################################################################################')
-    # m = create_ngram_model(NgramModel, 'warpeace_input.txt', war_peace_n)
-    # print(m.random_text(250))
+    war_peace_n = 3
+    print(f'Generating {war_peace_n }-gram war peace')
+    print(f'##########################################################################################################')
+    m = create_ngram_model(NgramModel, 'data/warpeace_input.txt', war_peace_n)
+    print(m.random_text(250))
 
-    # print(f'##########################################################################################################')
+    print(f'##########################################################################################################')
 
-    # war_peace_n = 4
-    # print(f'Generating {war_peace_n}-gram war peace')
-    # print(f'##########################################################################################################')
-    # m = create_ngram_model(NgramModel, 'warpeace_input.txt', war_peace_n)
-    # print(m.random_text(250))
+    war_peace_n = 4
+    print(f'Generating {war_peace_n}-gram war peace')
+    print(f'##########################################################################################################')
+    m = create_ngram_model(NgramModel, 'data/warpeace_input.txt', war_peace_n)
+    print(m.random_text(250))
 
-    # print(f'##########################################################################################################')
+    print(f'##########################################################################################################')
 
-    # war_peace_n = 7
-    # print(f'Generating {war_peace_n}-gram war peace')
-    # print(f'##########################################################################################################')
-    # m = create_ngram_model(NgramModel, 'warpeace_input.txt', war_peace_n)
-    # print(m.random_text(250))
+    war_peace_n = 7
+    print(f'Generating {war_peace_n}-gram war peace')
+    print(f'##########################################################################################################')
+    m = create_ngram_model(NgramModel, 'data/warpeace_input.txt', war_peace_n)
+    print(m.random_text(250))
 
     print(f'##########################################################################################################')
 
